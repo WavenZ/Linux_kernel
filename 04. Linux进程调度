@@ -1,0 +1,474 @@
+## 4.进程调度
+
+进程调度程序可看作在可运行态进程之间分配的处理器时间资源的内核子系统。
+
+4.1 多任务
+
+多任务操作系统就是能同时并发地交互执行多个进程的操作系统。
+
+多任务系统可以划分为两类：非抢占式多任务和抢占式多任务。
+
+Linux提供了抢占式的多任务模式。
+
+进程在被抢占之前能够运行的时间是预先设置好的，而且有一个专门的名字，叫进程的时间片。时间片实际上就是分配给每个可运行进程的处理器时间段。
+
+当今众多现代操作系统对程序运行都采用了动态时间片计算的方式，并且引入了可配置的计算策略。
+
+在非抢占多任务模式下，除非进程自己主动停止运行，否则它会一致执行。进程主动挂起自己的操作称为让步。
+
+4.2 Linux的进程调度
+
+从1991年的Linux第一版到2.4内核系列，Linux的调度程序都相当简陋，设计近乎原始。
+
+在Linux 2.5开发系列的内核中，调度程序做了大手术。开始采用了一种叫做O(1)调度程序的新调度程序。
+
+O（1）调度器虽然在拥有数以十个计的多处理器的环境下尚能表现出近乎完美的性能和可扩展性，但是该调度算法对于调度那些响应时间敏感的程序却有一些先天不足。（如交互进程）
+
+自2.6内核系统开发初期，开发人员为了提高对交互程序的调度性能引入了新的进程调度算法。其中最著名的是“反转楼梯最后期限调度算法（RSDL)，该算法吸引了队列理论，将公平调度的概念引入了Linux调度程序。并且最终在2.6.23内核版本中替代了O(1)调度算法，它此刻被称为”完全公平调度算法“，简称CFS。
+
+4.3 策略
+
+4.3.1 IO消耗型和处理器消耗型的进程
+
+前者指进程的大部分时间用来提交IO请求或是等待IO请求。因此，这样的进程经常处于可运行状态，但通常都是运行短短的一会儿。
+
+处理器消耗型进程把时间大多数用来执行代码上。除非被抢占，否则它们通常都一致不停地运行，因为它们没有太多的IO需求。但是，因为它们不属于IO驱动类型，所以从系统响应速度考虑，调度器不应该经常让它们运行。对于这类处理器消耗型的进程，调度策略往往是尽量降低它们的调度频率，而延长其运行时间。
+
+调度策略通常要在两个矛盾的目标中间寻找平衡：进程响应迅速（响应时间短）和最大系统利用率（高吞吐量）。
+
+4.3.2 进程优先级
+
+Linux采用了两种不同的优先级范围。第一种是用nice值，它的范围是从-20到+19，默认值为0；
+
+相比高nice值得进程，低nice值得进程可以获得更多的处理器时间。
+
+nice值是所有Unix系统中得标准化的概念，不同的Unix系统由于调度算法不同，因此nice值得运用方式有所差异；
+
+Linux系统中，nice值则代表时间片得比例，通过ps -el命令查看系统中得进程列表，其中NI列就是进程对应得nice值。
+
+第二种范围是实时优先级，其值是可配置得，默认情况下它的变化范围是从0到99。与nice值意义相反，越高得实时优先级数值意味着进程优先级越高。任何实时进程得优先级都高于普通的进程，也就是说实时优先级和nice优先级处于互不相交的两个范畴。
+
+4.3.3 时间片
+
+时间片是一个数值，它表示进程在被抢占前所能持续运行的时间。
+
+时间片太长会导致系统对交互的响应表现欠佳，让人觉得系统无法并发执行应用程序；时间片太短会明显增大进程切换带来的处理器耗时。
+
+Linux的CFS调度器并没有直接分配时间片到进程，它是将处理器的使用比划分给了进程。这样一来，进程所获得的处理器时间其实是和系统负载密切相关的。这个比例进一步还会受进程nice值得影响，nice值作为权重将调整进程所使用得处理器时间使用比。
+
+在多数操作系统中，是否要将一个进程立刻投入运行，是完全由进程优先级和是否有时间片决定得。而在Linux中使用新的CFS调度器，其抢占时机取决于新的可运行程序消耗了多少处理器使用比。如果消耗得使用比当前进程小，则新继承立刻投入运行，抢占当前进程，否则，将推迟其运行。
+
+4.4 Linux调度算法
+
+4.4.1 调度器类
+
+Linux调度器是以模块方式提供的，这样做得目的是允许不同类型得进程可以有针对性地选择调度算法。
+
+这种模块化结构被称为调度器类，它允许多种不同得可动态添加得调度算法并存，调度属于自己范畴的进程。
+
+完全公平调度（CFS)是一个针对普通进程的调度类，在Linux中称为SCHED_NORMAL,CFS算法实现定义在文件kernel/sched_fair.c中。
+
+4.4.3 Unix系统中的进程调度
+
+现代进程调度器有两个通用的概念：进程优先级和时间片。
+
+在Unix系统上，优先级以nice值形式输出给用户空间。
+
+第一个问题，若要将nice值映射到时间片，就必然需要将nice单位值对应到处理器的绝对时间。但这样做将导致进程切换无法最优化运行。
+
+例：假定我们需要将默认nice值（0）分配给一个进程--对应的是一个100ms的时间片；同时在分配一个最高nice值（+20，最低的优先级）给另一个进程--对应的时间片是5ms。假定两个进程都处于可运行状态。那么默认优先级的进程将获得20/21（100/105）的处理器时间，而低优先级的进程会获得1/21的处理器时间。
+
+第二个问题设计相对nice值，如nice值为0和1对应着100ms和95ms，而18和19对应着10ms和5ms，它们对应的相对变化大大的不同。
+
+第三个问题，多数操作系统中，时间片必须是定时器节拍的整数倍。
+
+第四个问题是关于基于优先级的调度器为了优化交互任务而唤醒相关进程的问题。这种系统中，为了进程更快地投入运行，而去对新要唤醒的进程提升优先级，即便它们的时间片已经用尽了。这种机制使得某些特殊的睡眠/唤醒用例有了一个玩弄调度器的后面，使得给定进程打破了公平原则。
+
+CSF采用的方法是对时间片分配方式进行根本性的重新设计；完全摒弃时间片而是分配给进程一个处理器使用比重。通过这种方式，CFS确保了进程调度中能有恒定的公平性，而将切换频率置于不断变动中。
+
+4.4.3 公平调度
+
+CFS的出发点基于一个简单的理念：进程调度的效果应如同系统具备一个理想中的完美多任务处理器。在这种系统中，每个进程将能获得1/n的处理器时间--n是可运行进程的数量。同时，我们可以调度给它们无限小的时间周期，所有在任何可测量周期内，我们给予n个进程中每个进程同样多的运行时间。
+
+因为无法在一个处理器上真的同时运行多个进程。而且如果每个进程运行无限小的时间周期也是不高效的--因为调度时进程抢占会带来一定的代价。
+
+CFS的做法是允许每个进程运行一段时间、循环轮转、选择运行最少的进程作为下一个运行进程，而不再采用分配给每个进程时间片的做法，CFS在所有可运行进程总数基础上计算出一个进程应该运行多久，而不是依靠nice值啦i计算时间片。nice值在CFS中被作为进程获得的处理器运行比的权重。
+
+M每个进程都按其权重在全部可运行进程中所占比例的”时间片“来运行，为了计算精确的时间片，CFS为完美多任务的无限小调度周期的近似值设立了一个目标。这个目标称作”目标延迟“，越小的调度周期将带来越好的交互性，同时也更接近完美的多任务。
+
+当可运行任务数量区域无限时，它们各自所获得的处理器使用比和时间片都将趋于零。这样无疑造成了不可接受的切换消耗。
+
+CFS为此引入每个进程获得的时间片底线，这个底线被称为最小粒度。默认情况下为1ms。
+
+例子：一个进程具有默认nice值（0），另一个具有的nice值为5。nice值为5的进程的权重将是默认nice进程的1/3。如果目标延迟为20ms，那么这两个进程将分别获得15ms和5ms的处理器时间。当连个进程的nice值分别为10和15时，它们获得的时间仍是15和5ms。
+
+可见，绝对的nice值不再影响调度决策，只有相对值才会影响处理器时间的分配比例。
+
+总结：任何进程所获得的处理器时间是由它自己和其他所有可运行进程nice值得相对差值决定得。nice值对时间片得作用不再是算数加权，而是几何加权。任何nice值对应得绝对时间不再是一个决定之，而是处理器得使用比。CFS称为公平调度器是因为它确保个每个进程公平得处理器使用比。
+
+4.5 Linux调度得实现
+
+CSF相关代码位于文件kernel/sched_fair.c中，其中值得关注的有四个组成部分：
+
+时间记账、进程选择、调度器入口、睡眠和唤醒
+
+4.5.1 时间记账
+
+所有的调度器都必须对进程运行时间作记账。多数Unix系统，分配一个时间片给每个一进程。当每次系统时钟节拍发生时，时间片都会减少一个节拍周期。当一个进程的时间片被减少到0时，他就会被另一个尚未减到0的时间片可运行进程抢占。
+
+	1. 调度器实体结构
+	CFS不再有时间片的概念，但是它也必须维护每个进程运行的时间记账，因为它需要确保每个进程只在公平分配给它的处理器时间内运行。
+	struct sched_entity{
+		struct load_weight	load;	
+		struct rb_node		run_node;
+		struct list_head	group_node;
+		unsigned int		on_rq;
+		u64			exec_start;
+		u64			sum_exec_runtime;
+		u64			vruntime;
+		u64			prev_sum_exec_runtime;
+		u64			last_wakeup;
+		u64			avg_overlap;
+		u64			nr_migrations;
+		u64			start_runtime;
+		u64			avg_wakeup;
+		...
+	};
+
+调度器实体结构作为一个名为se的成员变量，嵌入在进程描述符struct task_struct内。
+
+	2. 虚拟实时
+	vruntime变量存放进程的虚拟运行时间，该运行时间（花在运行上的时间和）的计算是经过了所有可运行进程总数的标准化。虚拟时间是以ns为单位的，所有vruntime和定时器节拍不再相关。虚拟运行时间可以帮助我们逼近CFS模型所追求的”理想多任务处理器“。如果真有遮掩过一个理想的而处理器，那么就不需要vruntime了。因为优先级相同的所有进程的虚拟运行时都是相同的--所有任务都被接收到相等的处理器份额。但是因为处理器无法实现完美的多任务，它必须一次运行每个任务。因此CFS使用vruntime变量来记录一个程序到底运行了多长时间以及它还应该在运行多久。
+
+	定义在kernel/sched_fair.c文件中的update_curr()函数实现了该记账功能：
+
+	static void update_curr(struct cfs_rq *cfs_rq)
+	{
+		struct sched_entity *curr = cfs_rq->curr;
+		u64 now = rq_of(cfs_rq)->lock;
+		unsigned long delta_exec;
+
+
+		if(unlikely(!curr))
+			return;
+
+		delta_exec = (unsigned long)(now - curr->exec_start);
+		if(!delta_exec)
+			return;
+		__update_curr(cfs_rq, curr, delta_exec);
+		curr->exec_start = now;
+
+		if(entity_is_task(curr)){
+			struct task_struct *curtask = task_of(curr);
+			trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
+			cpuacct_charge(curtask, delta_exec);
+			account_group_exec_runtime(curtask, delta_exec);
+		}
+	}
+	update_curr()计算了当前进程的执行时间，并且将其存放在变量delta_exec中。然后它又将运行时间传递给了__updatea_curr()，又后者再根据当前可运行进程总数对运行时间进行加权计算。最终将上述的权重值与当前运行进程的vruntime相加。
+	static inline void
+	__update_curr(struct cfs_rq *cfs_rq, struct sched_entity* curr,
+			unsigned long delta_exec)
+	{
+		unsigned long delta_exec_weighted;
+		
+		schedstat_set(curr->exec_max, max((u64)delta_exec, curr->exec_max));
+		
+		curr->sum_exec_runtime += delta_exec;
+		schedstat_add(cfs_rq, exec_clock, delta_exec);
+		delta_exec_weighted = calc_delata_fair(delta_exec, curr);
+	
+		curr->vruntime += delta_exec_weighted;
+		update_min_vruntime(cfs_rq);
+	}
+	update_curr()是由系统定时器周期性调用的，无论是在进程处于可运行态，还是被堵塞处于不可运行态。根据这种方式，vruntime可以准确测量给定进程的而运行时间，而且可知道谁应该是下一个被运行的进程。
+
+4.5.2 进程选择
+
+若存在一个完美的多任务处理器，所有可运行进程的vruntime值将一致。但事实上我们没有找到完美的多任务处理器，因此CFS试图利用一个简单的规则去均衡进程的虚拟运行时间：当CFS需要选择下一个运行进程时，它会挑一个具有最小vruntime的进程。这其实就是CFS调度算法的核心：选择具有最小vruntime的任务。
+
+CFS使用红黑树来组织可运行进程队列，并利用其迅速找到最小vruntime值得进程。
+
+	1. 挑选下一个任务
+
+CFS调度器选取待运行得下一个进程，是所有进程中vruntime最小得那个，它对应的便是再树种最左侧的叶子结点。也就是说，从树的根节点沿着左边的子节点向下找，一直找到叶子结点，便找到了其vruntime值最小的那个进程。
+
+	实现这一过程的函数是 __pick_next_entity()，它定义在文件kernel/sched_fair.c种：
+
+	static struct sched_entity* __pick_next_entity(struct cfs_rq *cfs_rq)
+	{
+		struct rb_node* left = cfs_rq->rb_leftmost;
+
+		if(!left)
+			return NULL;
+		return rb_entity(left, struct sched_entity, run_node);
+
+	2. 向树中加入进程
+
+	CFS将进程加入rbtree中，以及缓存最左叶子节点。这一切发生在进程变为可运行状态（被唤醒）或是通过fork()调用第一次创建进程时：
+
+	static void
+	eneuque_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+	{
+		// 通过调用update_curr(), 在更新min_vruntime之前先更新规范化的vruntime
+		if(!(flags & ENQUEUE_WAKEUP) || (flags & ENQUEUE_MIGRATE))
+			se->vruntime += cfs_rq->min_vruntime;
+		// 更新”当前任务“的运行时统计数据
+		update_curr(cfs_rq);
+		
+		account_entity_enqueue(cfs_rq, se);
+	
+		if(flags & ENQUEUE_WAKEUP){
+			place_entity(cfs_rq, se, 0);
+			enqueue_sleeper(cfs_rq, se);
+
+		update_stats_enqueue(cfs_rq, se);
+		check_spread(cfs_rq, se);
+		if(se != cfs_rq->curr)
+			__enqueue_entity(cfs_rq, se);
+		}
+	}
+
+该函数更新运行时间和其他一些统计数据，然后调用__enqueue_entity()进行繁重的插入操作，把数据项真正插入到红黑树中：
+
+	static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+	{
+		struct rb_node **link = &cfs_rq->tasks_timeline.rb_node;
+		struct rb_node *parent = NULL;
+		struct sched_entity(cfs_rq, se);
+		int leftmost = 1;
+		// 在红黑树中查找合适的位置
+		while(*link){
+			parent = *link;
+			entry = rb_entry(parent, struct sched_entity, run_node);
+			// 忽略冲突
+			if(key < entity_key(cfs_rq, entry)){
+				link = &parent->rb_left;
+			}else{
+				link = &parnt->rb_right;
+				leftmost = 0;
+			}
+		}
+		// 维护一个缓存，其中存放最左叶子节点
+		if(leftmost)
+			cfs_rq->rb_leftmost = &se->run_node;
+		
+		rb_link_node(&se->run_node, parent, link);		
+		rb_insert_color(&se->run_node, &cfs_rq->tasks_timeline);
+	}
+	上述代码中，初始时leftmost=1，在while循环中，只要存在一次向右移动的操作，则置leftmost为0，否则表示插入的过程中一直向左移动，即插入的元素为最左节点，循环结束，leftmost仍为1。如果循环结束时leftmost=1，则表示需要更新cfs_rq->rb_leftmost，即更新最左元素。
+
+	3. 从树中和删除进程。
+
+	删除动作发生能够在进程堵塞或者终止时。
+
+	statci void
+	dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int sleep)	
+	{
+		// 更新”当前任务“的运行时统计数据
+		update_curr(cfs_rq);
+
+		update_stats_dequeue(cfs_rq, se);
+		clear_buddies(cfs_rq, se);
+
+		if(se != cfs_rq->curr)
+			__dequeue_entity(cfs_rq, se);
+		account_entity_dequeue(cfs_rq, se);
+		update_min_vruntime(cfs_rq);
+		
+		// 在更新min_vruntime之后对调度实体进行规范化，因为更新可以指向”->curr"项，我们需要在规范化的位置反映这一变化
+		if(!sleep)
+			se->vruntime -= cfs_rq->min_vruntime;
+	}
+
+	和给红黑树添加进程一样，实际工作是由辅助函数__dequeue_entity()完成的。
+
+	static void __dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity* se)
+	{
+		if(cfs_rq->rb_leftmost == &se->run_node){
+			struct rb_node *next_node;
+			
+			next_node = rb_next(&se->run_node);
+			cfs_rq->rb_leftmost = next_node;
+		}
+		rb_erase(&se->run_node, &cfs_rq->tasks_timeline);
+	}
+	删除操作时，更新leftmost更加的方便，直接用rb_next()找到se->run_node的后继节点即可。
+
+4.5.3 调度器入口
+
+进程调度的主要入口点是函数schedule(), 它定义在文件kernel/sched.c中。
+
+它正是内核其他部分用于调用进程调度器的入口：选择哪个进程可以运行，合适将其投入运行。
+
+schedule（）通常都需要和一个具体的调度类相关联，也就是说，它会找到一个最高优先级的调度类--后者需要有自己的可运行队列，然年后问后者谁次啊是下一个该运行的进程。
+
+该函数中唯一重要的事情是，它会调用pick_next_task()，该函数会以优先级为序，从高到低，依次检查每一个调度类，并且从最高优先级的调度类中，选择最高优先级的进程：
+
+	static inline struct task_struct *
+	pick_next_task(struct rq *rq)
+	{
+		const struct sched_class *class;
+		struct task_struct *p;
+		// 优化：如果所有任务都在公平类中，那么就直接调用哪个函数
+		if(likely(rq->nr_running == rq->cfs.nr_running)){
+			p = fair_sched_class.pick_next_task(rq);
+			if(likely(p))
+				return p;
+		}
+		class = sched_class_highest;
+		for(;;){
+			p = class->pick_next_task(rq);
+			if(p)
+				return p;
+			class = class->next;		
+		}
+	}
+
+	因为CFS是普通进程的调度类，而系统运行的绝大多数进程都是普通进程，因此这里有一个优化用来加速选择下一个CFS提供的进程，前提是所有可运行进程数量等于CFS类对应的可运行进程数。
+
+	上述函数的核心是for（）循环，它以优先级为序，从最高的优先级类开始，遍历了每一个调度类。每一个调度类都实现了pick_next_task()函数，它会返回指向下一个可运行进程的指针，或者没有时返回NULL。我们会从第一个返回非NULL值得类中选择下一个可运行进程。CFS中pick_next_task()实现会调用pick_next_entity（），而该函数会再来调用__pick_next_entity()函数。
+
+4.5.4 睡眠和唤醒
+
+休眠（被阻塞）得进程处于一个特殊得不可执行状态。
+
+进程休眠有多种原因，但肯定都是为了等待一些事件。
+
+无论是什么原因导致得休眠，内核的操作都相同：进程把自己标记成休眠状态，从可执行红黑树中移除，放入等待队列，然后调用schedule()选择和执行一个其他进程。唤醒的过程正好相反：进程被设置为可执行状态，然年再从等待队列中移到可执行红黑树中。
+
+	1. 等待队列
+
+	休眠通过等待队列进行处理，等待队列是由等待某些时间发生的进程组成的简单链表。
+
+	内核用wake_queue_head_t来代表等待队列。等待队列可以通过DECLARE_WAITQUEUE()静态创建，也可以由init_waitqueue_head()动态创建。进程把自己放入等待队列中并设置成不可执行状态。当与等待队列相关的事情发生的时候，队列上的进程会被唤醒。
+
+	// q是希望休眠的等待队列
+	DEFINE_WAIT(wait);
+
+	add_wait_queue(q, &wait);
+	while(!condition){
+		prepare_to_wait(&q, &wait, TASK_INTERRUPTIBLE);
+		if(signal_pending(current))
+			// 处理
+		schedule();	
+	}
+	finish_wait(&q, wait);
+
+	进程通过执行下面几个步骤将自己加入到一个等待队列中：
+	1）调用宏DEFINE_WAIT()创建一个等待队列的项。
+	2）调用add_wait_queue()把自己加入到队列中。该队列会在进程等待的条件满足时唤醒它。
+	3）调用prepare_to_wait()方法将进程的状态变更为TASK_INTERRUPTIBLE或TASK_UNINTERRUPTIBLE。而且该函数如果有必要的话会将进程加回到等待队列。
+	4）如果状态被设置为TASK_INTERRUPTIBLE，则信号唤醒进程。这就是所谓的伪唤醒，因此检查并处理信号。
+	5）当进程被唤醒的时候，它会再次检查条件是否为真。如果是，它就退出循环；如果不是，它再次调用schedule（）并一直重复这步操作。
+	6）当条件满足后，进程将自己设置为TASK_RUNUNG并调用finish_wait()方法把自己移除等待队列。
+
+	函数inotify_read()，位于文件fs/notify/inotify/inotify_user.c中，负责从文件描述符中读取信息，它的实现无疑是等待队列的一个典型用法：
+	static ssize_t inotify_read(struct file* file, char __user *buf,
+					size_t count, loff_t *pos)
+	{	
+		struct fsnotify_group *group;
+		struct fsnotigy_event *kevent;
+		char __user *start;
+		int ret;
+		DEFINE_WATI(wait);
+		
+		start = buf;
+		group = file->private_data;
+		
+		while(1){
+			prepare_to_wait(&group->notification_waitq,
+					&wait,
+					TASK_INTERRUPTIBLE);
+			mutex_lock(&group->notification_mutex);
+			kevent = get_one_event(group, count);
+			mutex_unlock(&group->notification_mutex);
+
+			if(kevent){
+				ret = PTR_ERR(kevent);
+				if(IS_ERR(kevent))
+					break;
+				ret = copy_event_to_user(group, kevent, buf);
+				fsnotify_put_event(kevent);
+				if(ret < 0)
+					break;
+				buf += ret;
+				coutn -= ret;
+				continue;
+			}
+			ret = -EAGAIN;
+			if(file->f_flags & O_NONBLOCK)
+				break;
+			ret = -EINTR;
+			if(signal_pending(current))
+				break;
+			if(start != buf)
+				break;
+			schedule();
+		}
+
+		finish_wait(&group->notification_waitq, &wait);
+		if(start ！= buf && ret != -EFAULT)
+			ret = buf - start;
+		return ret;
+
+	}
+
+	2. 唤醒
+
+	唤醒操作通过函数wake_up()进行，它会唤醒指定的等待队列上的所有进程。它调用函数try_to_wake_up(), 该函数负责将进程设置为TASK_RUNNUNG状态，调用enqueue_task()将此进程放入红黑树中，如果被唤醒的进程的优先级比当前正在执行的进程的优先级高，还要设置need_resched标志。
+
+4.6 抢占和上下文切换
+
+上下文切换，也就是从一个可执行进程切换到另一个可执行进程，由定义在kernel/sched.c中的context_switch()函数负责处理。没当一个新的进程被选出来准备投入运行时，schedule()就会调用该函数。它完成了两项基本的工作。
+
+	1.调用声明在<asm/mmu_context.h>中的switch_mm()，该函数负责把虚拟内存从上一个进程映射切换到新进程中。
+	2.调用声明在<asm/system.h>中的switch_to(),该函数负责从上一个进程的处理器状态切换到新进程的处理器状态。这包括保存、恢复栈信息和寄存器信息，还有其他任何与体系结构相关的状态信息，都必须以每个进程为对象进行管理和保存。
+
+内核必须知道在什么时候调用schedule（）。如果仅靠用户程序代码显式地调用schedule（），它们可能就会永远地执行下去。
+
+内核提供了一个need_resched标志来声明是否需要重新执行依次调度。当某个进程应该被抢占时，scheduler_tick（）就会设置这个标志：当一个优先级高的进程进入可执行状态时，try_to_wake_up()也会设置这个标志，内核检查该标志，确认其被设置，调用schdule()来切换到一个新的进程。
+
+	set_tsk_need_resched()		设置指定进程中的need_resched标志
+	clear_tsk_need_resched()	清除指定进程中的need_resched标志
+	need_resched()			检查need_resched标志的值，如果被设置返回真
+
+每个进程都包含一个need_resched标志，这是因为访问进程描述符内的数值要比访问一个全局变量块（因为current宏速度很块并且描述符通常都放在告诉缓存中).
+
+4.6.1 用户抢占
+
+内核即将返回用户空间时，如果need_resched标志被设置，会导致schdule()被调用，此时就会发生用户抢占。
+
+在内核返回用户空间的时候，它知道自己时安全的，因为既然它可以继续执行当前进程，那么它当然可以再去选择一个新的进程去执行。所以，内核无论是咋i终端处理程序还是在系统调用后返回，都会检查need_resched标志。如果它被设置了，那么，内核会选择一个其他进程投入运行。
+
+从中断处理程序或系统调用返回的返回路径都是跟体系结构相关的，在entry.S文件中通过汇编语言来实现。
+
+4.6.2 内核抢占
+
+Linux完整地支持内核抢占。在不支持内核抢占的内核中，内核代码可以一直执行，到它完成为止。也就是说，调度程序没有办法再一个内核级的任务正在执行的时候重新调度。
+
+在2.6版的内核中，内核引入了抢占内力，只要重新调度是安全的，内核就可以在任何抢占正在执行的任务。
+
+那么，什么时候重新调度才是安全的呢？只要没有持有锁，内核就可以进行抢占。锁是非抢占区域的标志。由于内核是支持SMP的，所以，如果没有持有锁，正在执行的代码就是可重新导入的，也就是可以抢占的。
+
+为了支持内核抢占所做的第一处变动，就是为每个进程的thread_info引入preempt_count计数器。该计数器初始值为0，每当使用锁的时候数值加1，释放锁的时候数值减1.当数值为0的时候，内核就可执行抢占。从中断返回内核空间的时候，内核会检查need_resched和preempt_count的值。如果need_resched被设置，并且preempt_count为0的话，这说明有一个更为重要的任务需要执行并且可以安全地抢占，此时，调度程序就会被第哦啊用。
+
+如果内核中的进程被阻塞了，或它显示地调用了schdule()，内核抢占也会显式地发生。这种形式的内核抢占从来都是受支持的，因为根本无需额外的逻辑来保证内核可以安全地被抢占。如果代码显式地调用了schedule()，那么它应该清除自己式可以安全地被抢占的。
+
+总结：内核抢占会发生在：
+	1. 中断处理程序正在执行，且返回内核空间之前
+	2. 内核代码再一次具有可抢占性的时。
+	3. 如果内核中的任务显式地调用schedule()
+	4. 如果内核中的任务阻塞。
+
+4.7 实时调度策略
+
+Linux提供了两种实时调度策略：SCHED_FIFO和SCHED_RR。而普通的、非实时的调度策略是SCHED_NORMAL。借助调度类的框架，这些实时策略并不被完全公平调度来管理，而是被一个特殊的实时调度器管理。
+
+SCHED_FIFO实现了一种简单的、先入先出的调度算法：它不使用时间片。处于可运行状态的SCHED_FIFO级的进程会比任何SCHED_NORMAL级的进程都先得到调度。一旦一个SHCED_FIFO级进程处于可执行状态，就会一直执行，直到它自己受阻塞或显式地释放处理器为止；它不基于时间片，可以一直执行下去。只有更高优先级的SCHED_FIFO或者SCHED_RR任务才能抢占SCHED_FIFO任务。如果有两个或者更多的同优先级的SCHED_FIFO级进程，它们会轮流执行，但是依然只有在它们愿意让出处理器时才会退出。
+
+SCHED_RR与SCHED_FIFO大体相同，只是SCHED_RR级的进程在耗尽事先分配给它的时间后就不能再继续执行了。也就是说，SHCED_RR是带有时间片的SHCED_FIFO，这是一种实时轮流调度算法。时间片只能用来重新调度同一优先级的进程。对于SCHED_FIFO进程，高优先级总是立即抢占低优先级，但低优先级进程绝不能抢占SCHED_RR任务，即使它的时间片耗尽。
+
+这两种实时算法实现的都是静态优先级。内核不为实时进程计算动态优先级。这能保证给定优先级别的实时进程总能抢占优先级比他低的进程。
+
+Linux的实时调度算法提供了一种软实时工作方式。软实时的含义是，内核调度进程，尽力使进程再它的信啊顶时间到来前运行，但内核不保证总能满足这些进程的要求。硬实时系统保证再一定条件下，可以满足任何调度的而要求。
